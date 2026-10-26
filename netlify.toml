@@ -1,0 +1,5 @@
+# 在 Netlify 上「连接 GitHub 仓库」自动部署时使用。
+# 直接把 dist/yume-site 文件夹拖到 Netlify 部署的话，用不到这个文件。
+[build]
+  command = "python3 build.py"
+  publish = "dist/yume-site"
