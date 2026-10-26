@@ -1,0 +1,13 @@
+{
+  "name": "yume-nihongo",
+  "private": true,
+  "description": "yume 愚昧酱日语：网页是纯静态文件；这里的依赖只给 Netlify 上的同步码后台程序用",
+  "scripts": {
+    "build": "python3 build.py",
+    "dev": "node tools/devserver.mjs",
+    "test": "node tools/smoke.js && node tools/datasafe.test.js && node tools/tts.test.js && node tools/sync.test.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.6"
+  }
+}

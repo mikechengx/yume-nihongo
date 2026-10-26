@@ -106,7 +106,7 @@ function homeCard(){
   return `<div class="card stack" style="gap:10px;background:var(--bad-soft);box-shadow:none">
     <div class="row" style="gap:12px;align-items:flex-start"><span class="seal" lang="ja" style="border-color:var(--bad);color:var(--bad)">注</span>
       <div class="grow"><b>你正在「${esc(P.inapp)}」里使用 yume</b>
-      <div class="small" style="margin-top:4px">${esc(P.inapp)}清理缓存时，会把这里的学习进度一起删掉；而且这里的进度和手机浏览器里的<b>不互通</b>。建议点右上角「···」→「在浏览器打开」，以后都从浏览器（或添加到桌面的图标）进来学。</div></div></div>
+      <div class="small" style="margin-top:4px">${esc(P.inapp)}清理缓存时，会把这里的学习进度一起删掉；而且这里的进度和手机浏览器里的<b>不互通</b>。建议点右上角「···」→「在浏览器打开」，以后都从浏览器（或添加到桌面的图标）进来学。${Y.sync&&Y.sync.state().code?"":"也可以在「我的 → 多设备同步」开启同步：进度自动存到云端，到浏览器里输入同步码就能接着学。"}</div></div></div>
     ${urgent?`<div class="small" style="color:var(--bad)">你在这里已经学了一段时间，还没存过档：先到「我的 → 存档与备份」复制一份存档文字，发到「文件传输助手」。</div>`:""}
     <div class="row" style="gap:8px"><button class="btn sm grow" data-act="pwa-copyurl">${IC.link}复制网址</button>${urgent?`<button class="btn primary sm grow" data-act="gobackup">去存档</button>`:`<button class="btn sm grow" data-act="pwa-inapp-ok">知道了</button>`}</div>
   </div>`;

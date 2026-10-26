@@ -1,5 +1,12 @@
-# 在 Netlify 上「连接 GitHub 仓库」自动部署时使用。
-# 直接把 dist/yume-site 文件夹拖到 Netlify 部署的话，用不到这个文件。
+# Netlify 连接 GitHub 仓库后自动构建：网页（python3 build.py）+ 同步码后台程序（netlify/functions）。
+# 注意：把 dist/yume-site 文件夹直接拖到 Netlify 部署的话，只有网页、没有后台，「多设备同步」用不了。
 [build]
   command = "python3 build.py"
   publish = "dist/yume-site"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

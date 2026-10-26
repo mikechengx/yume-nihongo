@@ -307,6 +307,34 @@ core 内置动作：`tab`（data-k=标签）、`say`（data-t=要读的日文，
 
 ---
 
+## 11.5 多设备同步（同步码）
+
+**网页端 `js/sync.js`**（在「我的」页注册卡片 `#synccard`，order 5）
+- 本机记录 `Yume.store("sync")` = `{code, rev, base, last, pushed, err}`：`rev` 是上次对上的云端版本，`base` 是那时的进度摘要 `{xp,days,grammar,epoch}`（用来算「本设备新拿了多少 XP」），`pushed` 是上次上传时的 `S.updated`。
+- 同步一次（`Yume.sync.syncNow()`）：读云端 → 云端版本变了就 `mergeWithBase(S, 云端, base)` 合并并 `adopt()` → 把共同基准更新为云端这一份 → 本机和云端不一样就上传（带版本号；409 时重新读、合并、再写，最多 4 次）。
+- 加入（`Yume.sync.join(code)`）：第一次合并用 `force`（纪元不同也两边都保留），之前先存一份「before」快照。
+- 触发：打开网站 1.5 秒后、`onSaved` 后 5 秒（防抖）、切回页面（距上次 20 秒以上）、切到后台、`online` 事件；失败后 30 秒 / 2 分钟 / 5 分钟 / 10 分钟重试。同一设备多个页面用 `yume-sync-lock` 互斥，一次只有一个页面同步。
+- 只同步 S；`Yume.store` 里的数据（AI Key、字幕、视听库）不同步。云端数据一律经过 `merge()` 清洗。
+- 别的设备清空或覆盖了进度（纪元变了或 XP 变少）时，换进来之前先存一份「before」快照。
+- `Yume.sync = {state, syncNow, create, join, stop, deleteCloud, ping, normCode, fmtCode}`。
+- 开着同步、3 天内同步成功过时，`backupDue()` 返回 false（不再催存档），见 `Yume.setBackupOK(fn)`。
+
+**core 提供的接口**
+| 接口 | 说明 |
+|---|---|
+| `Yume.mergeWithBase(a, b, base, force)` | 纯函数：合并两份进度。`base` 是共同基准（可为 null）；多页面合并（absorb）和云端同步共用。 |
+| `Yume.baseOf(o)` | 取进度摘要 `{xp,days,grammar,epoch}`，当作下一次的 base。 |
+| `Yume.adopt(m)` | 把合并好的进度原地换进 S，重算课程、保存、刷新页面。 |
+| `Yume.onSaved(fn)` | 每次 `save()` 之后调用 `fn(本机是否写成功)`。 |
+| `Yume.setBackupOK(fn)` | `fn()` 为真时 `backupDue()` 返回 false。 |
+
+**服务器 `netlify/functions/sync.mjs` + `netlify/sync-core.mjs`**
+- `POST /api/sync`，JSON：`ping` / `create {data}` / `get {code}` / `put {code, rev, data}`（版本不对返回 409 和最新一份）/ `delete {code}`。
+- 同步码 12 位，字符集 `23456789ABCDEFGHJKMNPQRSTUVWXYZ`；存储键是 `p/` + SHA-256(`yume-sync:` + 同步码)。写入用 Blobs 的 `onlyIfMatch`（ETag）防止并发覆盖。
+- 限制：请求体最大 1 MB；同一 IP 每天最多生成 30 个同步码（计数存在 `rl/日期/IP 哈希`）。
+- Blobs 存储：正式部署（`context.deploy.published`）用 `yume-sync`，预览部署用 `yume-sync-preview`。
+- 本地：`node tools/devserver.mjs`（内存存储）。测试：`node tools/sync.test.mjs`。
+
 ## 12. 构建与测试
 
 - `node tools/smoke.js`：冒烟测试；`node tools/datasafe.test.js`：防丢数据测试（两个页面共享 localStorage、存档损坏、合并、撤销、精简存档）。
