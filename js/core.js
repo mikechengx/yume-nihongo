@@ -10,7 +10,7 @@ const Y=W.Yume=W.Yume||{};
 /* 老安卓浏览器（Chrome 69 以前的内核）没有 flat/flatMap：补上，避免模块运行到一半报错 */
 if(!Array.prototype.flat)Object.defineProperty(Array.prototype,"flat",{configurable:true,writable:true,value:function(d){d=d===undefined?1:d;return d>0?this.reduce((a,x)=>a.concat(Array.isArray(x)?x.flat(d-1):[x]),[]):this.slice()}});
 if(!Array.prototype.flatMap)Object.defineProperty(Array.prototype,"flatMap",{configurable:true,writable:true,value:function(f,t){return this.map(f,t).flat(1)}});
-Y.version="2.1.0";/* 2.1：安卓发音（在线发音兜底）、离线缓存秒开、防丢数据（多页面合并、自动备份、撤销） */
+Y.version="2.2.0";/* 2.1：安卓发音（在线发音兜底）、离线缓存秒开、防丢数据（多页面合并、自动备份、撤销） */
 
 /* ============ 小工具 ============ */
 const DAY=864e5;
@@ -146,7 +146,7 @@ let baseRev=+S.updated||0;/* 这个页面最后一次读到/写入的存档时�
 /* BASE 为 null 表示「不知道」：刚整体替换过进度（恢复、清空、撤销），S 里的 XP 不全是本页面新拿的。
  * 这时合并只取两边较大的值，不做「相加」，免得把恢复回来的 XP 算两遍；下一次成功写入后重新记下。 */
 let BASE=null;
-function setBase(){BASE={xp:+S.xp||0,days:Object.assign({},S.days),grammar:Object.assign({},S.grammar),epoch:S.epoch||""}}
+function setBase(){BASE={xp:+S.xp||0,days:Object.assign({},S.days),grammar:Object.assign({},S.grammar),epoch:S.epoch||""}}/* 和下面的 baseOf(S) 相同 */
 setBase();
 /* 打开时读不出存档（不是坏了，是读取出错）：还没见过本机原来的进度。第一次合并时两边都保留（不看纪元），之后恢复正常 */
 let blind=LOAD.why==="read";
@@ -182,7 +182,17 @@ function persistLocal(){
     return false;
   }
 }
-function save(){S.updated=Math.max(Date.now(),(S.updated||0)+1);const ok=persistLocal();schedulePush();snapSoon();return ok}
+const SAVED=[];/* 每次保存之后调用（云端同步用）：onSaved(fn) */
+function onSaved(fn){if(typeof fn==="function")SAVED.push(fn)}
+function save(){S.updated=Math.max(Date.now(),(S.updated||0)+1);const ok=persistLocal();schedulePush();snapSoon();for(const f of SAVED)try{f(ok)}catch(e){console.error("[yume] onSaved",e)}return ok}
+/* 把合并好的一份进度换进来（原地改 S，不换对象），重算课程、刷新页面、保存。云端同步拉到别的设备的进度时用 */
+function adopt(m){
+  m=merge(m);
+  for(const k of Object.keys(S))if(!(k in m))delete S[k];
+  Object.assign(S,m);
+  rebuild();migrateOrphans();save();
+  if(booted&&!OV.open)render();
+}
 
 /* 纪元：清空/覆盖恢复之后换新的（时间戳 36 进制 + 4 位随机），可以比较新旧；"" 最旧 */
 const epochT=e=>{const n=parseInt(String(e||"").slice(0,-4),36);return isFinite(n)?n:0};
@@ -260,17 +270,25 @@ function mergeProgress(a,b,force){
   return merge(o);
 }
 /* 把另一份进度并进当前 S（原地改，不换对象）。rerender=true 时重算课程并刷新页面 */
-function absorb(other,rerender){
-  const m=mergeProgress(S,other,blind);
-  if(BASE&&!blind&&(BASE.epoch||"")===(S.epoch||"")&&(S.epoch||"")===(other.epoch||"")){
-    /* 别的页面的 XP + 本页面自上次同步后新拿的 XP（只算增加的部分） */
-    /* 结果不低于「取较大值」：还开着的旧版页面不合并就直接写，可能盖掉过本页面的 XP，这时也不倒退 */
-    m.xp=Math.max(+m.xp||0,(+other.xp||0)+Math.max(0,(+S.xp||0)-(+BASE.xp||0)));
-    const ds=new Set([...Object.keys(other.days||{}),...Object.keys(S.days||{})]);
-    for(const d of ds){const v=(+(other.days||{})[d]||0)+Math.max(0,(+S.days[d]||0)-(+BASE.days[d]||0));if(v>(+m.days[d]||0))m.days[d]=v}
-    /* 本页面撤销掉的「我学会了」：别的页面没动过的话，合并后也不要再出现 */
-    for(const k in BASE.grammar)if(!(k in S.grammar)&&(other.grammar||{})[k]===BASE.grammar[k])delete m.grammar[k];
+/* 合并两份进度（不改动 a、b，返回新的一份）。base：两边上次同步时的共同状态 {xp,days,grammar,epoch}，不知道时传 null。
+ * 有 base 且纪元相同：XP 和每天 XP = 对方的 + 本方自上次同步后新拿的（只算增加的部分），结果不低于「取较大值」
+ * （还开着的旧版页面不合并就直接写，可能盖掉过本方的 XP，这时也不倒退）；本方撤销掉的「我学会了」，对方没动过的话也不再出现。
+ * force=true：第一次合并（纪元不同也两边都保留，见 mergeProgress）。多页面合并（absorb）和云端同步（sync.js）都用它。 */
+function mergeWithBase(a,b,base,force){
+  const m=mergeProgress(a,b,force);
+  if(base&&!force&&(base.epoch||"")===(a.epoch||"")&&(a.epoch||"")===(b.epoch||"")){
+    const ad=a.days||{},bd=b.days||{},zd=base.days||{};
+    m.xp=Math.max(+m.xp||0,(+b.xp||0)+Math.max(0,(+a.xp||0)-(+base.xp||0)));
+    const ds=new Set([...Object.keys(bd),...Object.keys(ad)]);
+    for(const d of ds){const v=(+bd[d]||0)+Math.max(0,(+ad[d]||0)-(+zd[d]||0));if(v>(+m.days[d]||0))m.days[d]=v}
+    const ag=a.grammar||{},bg=b.grammar||{};
+    for(const k in base.grammar||{})if(!(k in ag)&&bg[k]===base.grammar[k])delete m.grammar[k];
   }
+  return m;
+}
+const baseOf=o=>({xp:+o.xp||0,days:Object.assign({},o.days),grammar:Object.assign({},o.grammar),epoch:o.epoch||""});
+function absorb(other,rerender){
+  const m=mergeWithBase(S,other,blind?null:BASE,blind);
   for(const k of Object.keys(S))if(!(k in m))delete S[k];
   Object.assign(S,m);
   baseRev=Math.max(baseRev,+other.updated||0);setBase();blind=false;
@@ -834,7 +852,9 @@ function streak(){let n=0;const d=new Date();if(!S.days[dkey(d)])d.setDate(d.get
 function bestStreak(){const ks=Object.keys(S.days).filter(k=>S.days[k]>0).sort();let best=0,cur=0,prev=null;for(const k of ks){const t=new Date(k+"T00:00:00").getTime();cur=prev!==null&&Math.round((t-prev)/DAY)===1?cur+1:1;best=Math.max(best,cur);prev=t}return best}
 function backupDays(){return S.lastBackup?Math.max(0,Math.round((Date.parse(today())-Date.parse(S.lastBackup))/DAY)):null}
 function backupAgo(){const d=backupDays()||0;return d<=0?"今天":d+" 天前"}
-function backupDue(){if(S.xp<30)return false;if(!S.lastBackup)return true;return (Date.parse(today())-Date.parse(S.lastBackup))/DAY>=7}
+let backupOK=()=>false;/* 其他方式已经保护了进度（比如云端同步）：setBackupOK(fn) */
+function setBackupOK(fn){if(typeof fn==="function")backupOK=fn}
+function backupDue(){if(S.xp<30)return false;try{if(backupOK())return false}catch(e){}if(!S.lastBackup)return true;return (Date.parse(today())-Date.parse(S.lastBackup))/DAY>=7}
 const lvNeed=k=>25*(k-1)*(k-1);
 function level(){let k=1;while(S.xp>=lvNeed(k+1))k++;return{k,from:lvNeed(k),to:lvNeed(k+1)}}
 function addXP(n){n=Math.round(+n||0);if(n<=0)return;S.xp+=n;const d=today();S.days[d]=(S.days[d]||0)+n}
@@ -1064,7 +1084,7 @@ function boot(){
 Object.assign(Y,{
   /* 工具 */ esc,today,dkey,shuffle,safeUrl,clone,DAY,IV,
   /* 振假名 */ ruby,plain,reading,furiOn,
-  /* 存储 */ KEY,store,save,merge,mergeProgress,snapList,snapRestore,snapPut,loadInfo:()=>LOAD,parseBackup,backupInfo,undoLast,registerState,registerSetting,restore,resetProgress,stateSize,registerBackup,backupText,packCloud,unpackCloud,
+  /* 存储 */ KEY,store,save,onSaved,adopt,merge,mergeProgress,mergeWithBase,baseOf,setBackupOK,snapList,snapRestore,snapPut,loadInfo:()=>LOAD,parseBackup,backupInfo,undoLast,registerState,registerSetting,restore,resetProgress,stateSize,registerBackup,backupText,packCloud,unpackCloud,
   registerWordList,wordList,isWordList,importedCustom,
   syncState:()=>localFull?"full":sync,
   /* 发音 */ speak,stopSpeak,tts,pickVoice,voiceStatus,voiceHelp,
