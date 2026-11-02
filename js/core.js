@@ -698,7 +698,7 @@ async function speakOnline(txt,rate,tok){
 /* 整段文字正好是课程里的某个单词时，直接读它的假名：系统语音遇到多音字（生、日、方、人…）常读错 */
 let KANAMAP=null,KANAN=-1;
 /* 单个假名（イ、キャ）：安卓语音引擎读片假名单字常常没声音或一闪而过，改成平假名读 */
-const lone=t=>/^[ぁ-ゖァ-ヺー]{1,2}$/.test(t);
+const lone=t=>/^[ぁ-ゖァ-ヺ]{1,2}ー?$/.test(t);
 const toHira=t=>t.replace(/[ァ-ヶ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60));
 function kanaOf(t){
   if(lone(t))return toHira(t);
@@ -711,14 +711,17 @@ function kanaOf(t){
 function speak(t,o){
   o=o||{};
   if(t==null||t==="")return Promise.resolve(false);
-  const txt=(o.kana?reading(t):plain(t)).replace(/（　）|（\s*）|\(\s*\)/g,"").replace(/[〜～]/g,"").trim();
+  let txt=(o.kana?reading(t):plain(t)).replace(/（　）|（\s*）|\(\s*\)/g,"").replace(/[〜～]/g,"").trim();
   /* 自带语音读假名（不会读错多音字），在线发音读原文（有汉字语境，语调更自然） */
   const sysTxt=(o.kana||/\[[ぁ-ゖゝゞァ-ヺー・]+\]/.test(String(t))?reading(t):kanaOf(plain(t))).replace(/（　）|（\s*）|\(\s*\)/g,"").replace(/[〜～]/g,"").trim();
   if(!txt)return Promise.resolve(false);
+  /* 单个假名太短，手机语音读出来一闪而过、イ和ウ听不清：拖长成「いー」，语速放慢，在线发音也读这个 */
+  let hold=false,sysT=sysTxt;
+  if(/^[ぁ-ゖァ-ヺ]{1,2}$/.test(txt)&&!/^[っッ]$/.test(txt)){hold=true;txt=sysT=toHira(txt)+"ー"}
   stopSpeak();const tok=++speakTok;
-  const rate=Math.max(.5,Math.min(1.6,(o.rate||.9)*userSpeed()));
+  const rate=Math.max(.5,Math.min(1.6,(o.rate||.9)*userSpeed()*(hold?.8:1)));
   const first=engine();if(first==="none")return Promise.resolve(false);
-  const run=e=>{tts.used=e;return e==="online"?speakOnline(txt,rate,tok).then(ok=>{if(!ok&&tok===speakTok&&tts.err!=="blocked")tts.onlineBad=Date.now();return ok}):speakSystem(sysTxt||txt,o,rate,tok)};
+  const run=e=>{tts.used=e;return e==="online"?speakOnline(txt,rate,tok).then(ok=>{if(!ok&&tok===speakTok&&tts.err!=="blocked")tts.onlineBad=Date.now();return ok}):speakSystem(sysT||txt,o,rate,tok)};
   return run(first).then(ok=>{
     if(ok||tok!==speakTok||voiceMode()!=="auto")return ok;
     /* 这一种失败了（不是被打断）：换另一种再试一次 */
