@@ -565,10 +565,21 @@ tts.ja=()=>{const e=engine();return e==="online"||(e==="system"&&!!tts.voice)};
 tts.engine=engine;tts.mode=voiceMode;
 const FEMALE=/kyoko|haruka|nanami|ayumi|sayaka|mizuki|o-ren|aoi|shiori|mayu|female|女性|google 日本語/i;
 const MALE=/otoya|ichiro|keita|hattori|daichi|naoki|\bmale\b|男性/i;
+const NOVELTY=/\b(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|bahh|bells|boing|bubbles|cellos|jester|organ|superstar|trinoids|whisper|wobble|zarvox|albert|bad news|good news|fred|junior|kathy|ralph)\b/i;
 const JA_VOICE=v=>/^ja([-_]|$)/i.test(v.lang||"")||/japan|日本|日語|日语/i.test(v.name||"");
 function loadVoices(){if(!SS)return;try{const vs=SS.getVoices()||[];tts.voices=vs.filter(JA_VOICE);
-  /* 优先本地语音：在国内 Google 在线语音常常放不出声 */
-  tts.voice=tts.voices.find(v=>v.localService)||tts.voices[0]||null}catch(e){}}
+  /* 按音质给语音打分，取最高的：本地语音优先（国内 Google 在线语音常常放不出声）；
+   * 高品质 / 增强版加分；iOS 的趣味语音（Eddy、Flo、Grandma…）和 compact 压缩版、espeak 机械音减分 */
+  const sc=v=>{const n=v.name||"";let x=0;
+    if(v.localService)x+=50;
+    if(/premium|enhanced|高品質|プレミアム|拡張|neural|natural/i.test(n))x+=30;
+    if(FEMALE.test(n)||MALE.test(n))x+=15;
+    if(/^ja[-_]jp$/i.test(v.lang||""))x+=5;
+    if(NOVELTY.test(n))x-=80;
+    if(/compact|espeak|festival/i.test(n))x-=25;
+    return x};
+  tts.voices.sort((a,b)=>sc(b)-sc(a));
+  tts.voice=tts.voices[0]||null}catch(e){}}
 if(SS){loadVoices();try{SS.addEventListener("voiceschanged",loadVoices)}catch(e){try{SS.onvoiceschanged=loadVoices}catch(e2){}}
   /* 安卓 Chrome 的语音列表常常要过一会儿才出来，有的机型还不触发 voiceschanged：开头 6 秒内每 300ms 再查一次 */
   if(!tts.voice&&typeof setInterval==="function"){let n=0;const iv=setInterval(()=>{loadVoices();if(tts.voice||++n>=20)clearInterval(iv)},300)}}
@@ -583,7 +594,21 @@ function pickVoice(hint){
 const userSpeed=()=>{const v=+(S&&S.settings&&S.settings.speed);return isFinite(v)&&v>=.6&&v<=1.5?v:1};
 let curU=null,curFin=null,audioEl=null,speakTok=0,lastCancel=0;
 /* 自带语音 */
-function speakSystem(txt,o,rate,tok){
+/* 安卓 Chrome 读长句常读到一半就停：超过 60 字按句子切开，一句一句读 */
+async function speakSystem(txt,o,rate,tok){
+  const parts=sysParts(txt);
+  for(const p of parts){if(tok!==speakTok)return false;if(!(await speakSys1(p,o,rate,tok)))return false}
+  return true;
+}
+function sysParts(t){
+  if(t.length<=60)return [t];
+  const out=[];let cur="";
+  for(const p of t.replace(/([。！？!?\n])/g,"$1\u0000").split("\u0000")){
+    if(cur&&(cur+p).length>60){out.push(cur);cur=p}else cur+=p;
+  }
+  if(cur)out.push(cur);return out.filter(x=>x.trim());
+}
+function speakSys1(txt,o,rate,tok){
   return new Promise(res=>{
     if(!SS){res(false);return}
     let done=false,started=false,tm=null,st=null,u=null;
@@ -669,16 +694,26 @@ async function speakOnline(txt,rate,tok){
   }
   return true;
 }
+/* 整段文字正好是课程里的某个单词时，直接读它的假名：系统语音遇到多音字（生、日、方、人…）常读错 */
+let KANAMAP=null,KANAN=-1;
+function kanaOf(t){
+  if(!/[\u3400-\u9FFF]/.test(t)||t.length>12)return t;
+  if(!KANAMAP||KANAN!==WORDS.length){KANAMAP=new Map();KANAN=WORDS.length;
+    for(const w of WORDS){const k=plain(w.ja),r=reading(w.kana||"");if(k&&r&&!/[\u3400-\u9FFF]/.test(r)&&!KANAMAP.has(k))KANAMAP.set(k,r)}}
+  return KANAMAP.get(t)||t;
+}
 /* speak(text,{rate,pitch,voiceHint,kana}) → Promise<boolean>（读完 true；失败或被打断 false） */
 function speak(t,o){
   o=o||{};
   if(t==null||t==="")return Promise.resolve(false);
   const txt=(o.kana?reading(t):plain(t)).replace(/（　）|（\s*）|\(\s*\)/g,"").replace(/[〜～]/g,"").trim();
+  /* 自带语音读假名（不会读错多音字），在线发音读原文（有汉字语境，语调更自然） */
+  const sysTxt=(o.kana||/\[[ぁ-ゖゝゞァ-ヺー・]+\]/.test(String(t))?reading(t):kanaOf(plain(t))).replace(/（　）|（\s*）|\(\s*\)/g,"").replace(/[〜～]/g,"").trim();
   if(!txt)return Promise.resolve(false);
   stopSpeak();const tok=++speakTok;
   const rate=Math.max(.5,Math.min(1.6,(o.rate||.9)*userSpeed()));
   const first=engine();if(first==="none")return Promise.resolve(false);
-  const run=e=>{tts.used=e;return e==="online"?speakOnline(txt,rate,tok).then(ok=>{if(!ok&&tok===speakTok&&tts.err!=="blocked")tts.onlineBad=Date.now();return ok}):speakSystem(txt,o,rate,tok)};
+  const run=e=>{tts.used=e;return e==="online"?speakOnline(txt,rate,tok).then(ok=>{if(!ok&&tok===speakTok&&tts.err!=="blocked")tts.onlineBad=Date.now();return ok}):speakSystem(sysTxt||txt,o,rate,tok)};
   return run(first).then(ok=>{
     if(ok||tok!==speakTok||voiceMode()!=="auto")return ok;
     /* 这一种失败了（不是被打断）：换另一种再试一次 */
