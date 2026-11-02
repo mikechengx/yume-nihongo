@@ -10,7 +10,7 @@ const Y=W.Yume=W.Yume||{};
 /* 老安卓浏览器（Chrome 69 以前的内核）没有 flat/flatMap：补上，避免模块运行到一半报错 */
 if(!Array.prototype.flat)Object.defineProperty(Array.prototype,"flat",{configurable:true,writable:true,value:function(d){d=d===undefined?1:d;return d>0?this.reduce((a,x)=>a.concat(Array.isArray(x)?x.flat(d-1):[x]),[]):this.slice()}});
 if(!Array.prototype.flatMap)Object.defineProperty(Array.prototype,"flatMap",{configurable:true,writable:true,value:function(f,t){return this.map(f,t).flat(1)}});
-Y.version="2.2.0";/* 2.1：安卓发音（在线发音兜底）、离线缓存秒开、防丢数据（多页面合并、自动备份、撤销） */
+Y.version="2.2.1";/* 2.2.1：五十音自带录音、发音读假名、切题停声；2.1：安卓发音（在线发音兜底）、离线缓存秒开、防丢数据（多页面合并、自动备份、撤销） */
 
 /* ============ 小工具 ============ */
 const DAY=864e5;
