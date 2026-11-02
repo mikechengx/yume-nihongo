@@ -592,6 +592,7 @@ function pickVoice(hint){
 }
 /* 用户设置的语速倍数（0.7–1.3，默认 1），乘在各处传进来的 rate 上；rate .9 是“正常” */
 const userSpeed=()=>{const v=+(S&&S.settings&&S.settings.speed);return isFinite(v)&&v>=.6&&v<=1.5?v:1};
+const ANDROID=/Android/i.test(String((W.navigator&&W.navigator.userAgent)||""));
 let curU=null,curFin=null,audioEl=null,speakTok=0,lastCancel=0;
 /* 自带语音 */
 /* 安卓 Chrome 读长句常读到一半就停：超过 60 字按句子切开，一句一句读 */
@@ -636,7 +637,7 @@ function speakSys1(txt,o,rate,tok){
     /* 安卓 Chrome：cancel() 之后立刻 speak() 常常没声音，离上次 cancel 不到 120ms 就等一等再读 */
     let busy=false;try{busy=SS.speaking||SS.pending}catch(e){}
     if(busy){try{SS.cancel()}catch(e){}lastCancel=Date.now()}
-    const wait=120-(Date.now()-lastCancel);
+    const wait=(ANDROID?120:0)-(Date.now()-lastCancel);
     if(wait>0)setTimeout(go,wait);else go();
   });
 }
@@ -729,8 +730,10 @@ function speak(t,o){
 function stopSpeak(){
   speakTok++;
   const f=curFin;curFin=null;
-  if(audioEl)try{audioEl.pause()}catch(e){}
-  if(SS)try{if(SS.speaking||SS.pending){SS.cancel();lastCancel=Date.now()}}catch(e){}
+  /* 切题太快时，上一句可能还在排队，speaking / pending 还是 false：不能靠它们判断，一律 cancel；
+   * 在线发音还在加载的也要彻底停掉（去掉 src），否则它加载完会接着出声，和下一句撞在一起 */
+  if(audioEl)try{audioEl.pause();audioEl.onplaying=audioEl.onended=audioEl.onerror=null;audioEl.removeAttribute("src");audioEl.load()}catch(e){}
+  if(SS)try{SS.cancel();lastCancel=Date.now()}catch(e){}
   if(f)f(false);
 }
 /* 设置页「试听」用：读一句，返回 {ok, engine, err} */
@@ -1038,7 +1041,7 @@ function render(){
 }
 function go(tab,opts){
   if(!TABS[tab])tab="home";
-  const t=TABS[tab],from=ui.tab;ui.tab=tab;try{W.localStorage.setItem(KEY+":tab",tab)}catch(e){}
+  const t=TABS[tab],from=ui.tab;if(from!==tab)stopSpeak();ui.tab=tab;try{W.localStorage.setItem(KEY+":tab",tab)}catch(e){}
   if(t.onShow)try{t.onShow(Object.assign({from},opts||{}))}catch(e){console.error(e)}
   render();if(!(opts&&opts.keepScroll))try{W.scrollTo(0,0)}catch(e){}
 }

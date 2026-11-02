@@ -88,5 +88,10 @@ function env(opts){
   {const {Y,log}=env({voices:[{name:"Kyoko",lang:"ja-JP",localService:true}],sysDur:300});
     await Y.speak("イ");ok(log[0][0]==="say"&&log[0][1]==="い","单个片假名改读平假名："+log[0][1]);}
   {const {Y,log}=env({noSS:true});await Y.speak("イ");ok(log[0][1].includes("baidu"),"单个假名在线先用百度");}
+  /* 13. 切题太快：上一句还在排队（speaking 还是 false）时也要被取消，不能两句一起读 */
+  {const {Y,log,ss}=env({voices:[{name:"Kyoko",lang:"ja-JP",localService:true}],sysDur:300});
+    let cancels=0;const c0=ss.cancel.bind(ss);ss.cancel=function(){cancels++;return c0()};
+    const a=Y.speak("あ");Y.speak("い");const r=await a;
+    ok(r===false,"被新的一句打断的那句返回 false");ok(cancels>=2,"每次切换都 cancel："+cancels);}
   console.log("tts: "+pass+" 项全部通过");
 })().catch(e=>{console.error(e);process.exit(1)});
