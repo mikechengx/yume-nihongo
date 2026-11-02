@@ -20,7 +20,7 @@ SITE = os.path.join(DIST, 'yume-site')
 ART = os.path.join(DIST, 'artifact')
 DRAFT = os.path.expanduser('~/Downloads/yume-site-draft')
 LIVE = os.path.realpath(os.path.expanduser('~/Downloads/yume-site'))
-ASSET_DIRS = ['css', 'js', 'content']
+ASSET_DIRS = ['css', 'js', 'content', 'audio']
 
 HEAD = ('<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'

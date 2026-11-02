@@ -695,10 +695,16 @@ async function speakOnline(txt,rate,tok){
   }
   return true;
 }
+/* 五十音录音的地址：片假名转平假名，文件名是码点（见 tools/make_kana_audio.py）；不是五十音返回 "" */
+function kanaClip(t){
+  if(!/^[ぁ-ゖァ-ヶ][ゃゅょャュョ]?$/.test(t)||/^[っッ]$/.test(t))return "";
+  const h=toHira(t);
+  return "audio/kana/"+Array.from(h).map(c=>("0000"+c.charCodeAt(0).toString(16)).slice(-4)).join("-")+".mp3";
+}
 /* 整段文字正好是课程里的某个单词时，直接读它的假名：系统语音遇到多音字（生、日、方、人…）常读错 */
 let KANAMAP=null,KANAN=-1;
 /* 单个假名（イ、キャ）：安卓语音引擎读片假名单字常常没声音或一闪而过，改成平假名读 */
-const lone=t=>/^[ぁ-ゖァ-ヺ]{1,2}ー?$/.test(t);
+const lone=t=>/^[ぁ-ゖァ-ヺ][ゃゅょャュョ]?ー?$/.test(t);
 const toHira=t=>t.replace(/[ァ-ヶ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60));
 function kanaOf(t){
   if(lone(t))return toHira(t);
@@ -717,9 +723,10 @@ function speak(t,o){
   if(!txt)return Promise.resolve(false);
   /* 单个假名太短，手机语音读出来一闪而过、イ和ウ听不清：拖长成「いー」，语速放慢，在线发音也读这个 */
   let hold=false,sysT=sysTxt;
-  if(/^[ぁ-ゖァ-ヺ]{1,2}$/.test(txt)&&!/^[っッ]$/.test(txt)){hold=true;txt=sysT=toHira(txt)+"ー"}
+  if(/^[ぁ-ゖァ-ヺ][ゃゅょャュョ]?$/.test(txt)&&!/^[っッ]$/.test(txt)){hold=true;txt=sysT=toHira(txt)+"ー"}
   stopSpeak();const tok=++speakTok;
   const rate=Math.max(.5,Math.min(1.6,(o.rate||.9)*userSpeed()*(hold?.8:1)));
+  const engineSpeak=()=>{
   const first=engine();if(first==="none")return Promise.resolve(false);
   const run=e=>{tts.used=e;return e==="online"?speakOnline(txt,rate,tok).then(ok=>{if(!ok&&tok===speakTok&&tts.err!=="blocked")tts.onlineBad=Date.now();return ok}):speakSystem(sysT||txt,o,rate,tok)};
   return run(first).then(ok=>{
@@ -729,6 +736,11 @@ function speak(t,o){
     if(!other||tts.err==="blocked")return false;
     return run(other);
   });
+  };
+  /* 单个假名：优先播自带的录音（audio/kana/，所有手机读得一样，已经是放慢的）；没有或播放失败再用语音引擎 */
+  const clip=hold?kanaClip(String(plain(t)).trim()):"";
+  if(clip)return playUrl(clip,.9*userSpeed(),tok).then(ok=>ok||tok!==speakTok?ok:engineSpeak());
+  return engineSpeak();
 }
 function stopSpeak(){
   speakTok++;
