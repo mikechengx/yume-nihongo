@@ -77,5 +77,12 @@ function env(opts){
   /* 9. 语速：慢速 rate .6 → 在线播放速度约 0.67 */
   {const {Y}=env({noSS:true});Y.S.settings.speed=1;
     const done=Y.speak("ねこ",{rate:.6});await done;ok(true,"慢速可以播放");}
+  /* 10. 自带语音读假名（有振假名的句子）；语音按音质排序，趣味语音靠后 */
+  {const {Y,log}=env({voices:[{name:"Eddy 日本語（日本）",lang:"ja-JP",localService:true},{name:"Kyoko (Enhanced)",lang:"ja-JP",localService:true}],sysDur:300});
+    ok(Y.tts.voice.name.startsWith("Kyoko"),"趣味语音排在后面，选 Kyoko");
+    await Y.speak("私[わたし]は学生[がくせい]です。");ok(log[0][1]==="わたしはがくせいです。","自带语音读假名："+log[0][1]);}
+  /* 11. 长句：自带语音按句子分段读 */
+  {const {Y,log}=env({voices:[{name:"Kyoko",lang:"ja-JP",localService:true}],sysDur:300});
+    await Y.speak("今日はとてもいい天気です。".repeat(8));ok(log.filter(x=>x[0]==="say").length>=2,"长句分段读");}
   console.log("tts: "+pass+" 项全部通过");
 })().catch(e=>{console.error(e);process.exit(1)});
