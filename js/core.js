@@ -592,6 +592,7 @@ function pickVoice(hint){
 }
 /* 用户设置的语速倍数（0.7–1.3，默认 1），乘在各处传进来的 rate 上；rate .9 是“正常” */
 const userSpeed=()=>{const v=+(S&&S.settings&&S.settings.speed);return isFinite(v)&&v>=.6&&v<=1.5?v:1};
+const ANDROID=/Android/i.test(String((W.navigator&&W.navigator.userAgent)||""));
 let curU=null,curFin=null,audioEl=null,speakTok=0,lastCancel=0;
 /* 自带语音 */
 /* 安卓 Chrome 读长句常读到一半就停：超过 60 字按句子切开，一句一句读 */
@@ -623,7 +624,7 @@ function speakSys1(txt,o,rate,tok){
         const t0=Date.now();
         u.onstart=()=>{started=true;clearTimeout(st)};
         /* 安卓上日语语音包「列出来了但没装好」时，会一下子就「读完」却没有声音：不到 0.15 秒就结束的算失败，换在线发音 */
-        u.onend=()=>{if(Date.now()-t0<150){tts.err="too-fast";sysFail();fin(false)}else fin(true)};
+        u.onend=()=>{if(Date.now()-t0<(lone(txt)?50:150)){tts.err="too-fast";sysFail();fin(false)}else fin(true)};
         u.onerror=ev=>{const er=(ev&&ev.error)||"error";if(er!=="interrupted"&&er!=="canceled"){tts.err=er;sysFail()}fin(false)};
         curU=u;/* 留住引用：Chrome 有时会回收正在读的句子，onend 就永远不来 */
         tm=setTimeout(()=>fin(true),Math.min(30000,2000+txt.length*300/rate));
@@ -636,7 +637,7 @@ function speakSys1(txt,o,rate,tok){
     /* 安卓 Chrome：cancel() 之后立刻 speak() 常常没声音，离上次 cancel 不到 120ms 就等一等再读 */
     let busy=false;try{busy=SS.speaking||SS.pending}catch(e){}
     if(busy){try{SS.cancel()}catch(e){}lastCancel=Date.now()}
-    const wait=120-(Date.now()-lastCancel);
+    const wait=(ANDROID?120:0)-(Date.now()-lastCancel);
     if(wait>0)setTimeout(go,wait);else go();
   });
 }
@@ -646,7 +647,7 @@ const PROV={
   baidu:s=>"https://fanyi.baidu.com/gettts?lan=jp&spd=5&source=web&text="+encodeURIComponent(s)
 };
 const provBad=new Map();/* "来源|文字" → 这一来源读不了这段（本次打开网站内有效，最多记 500 条） */
-function provOrder(s){const word=s.length<=10&&!/[。、！？!?，,\s]/.test(s);return word?["youdao","baidu"]:["baidu","youdao"]}
+function provOrder(s){if(lone(s))return ["baidu","youdao"];const word=s.length<=10&&!/[。、！？!?，,\s]/.test(s);return word?["youdao","baidu"]:["baidu","youdao"]}
 function onlineParts(t){
   if(t.length<=120)return [t];
   const out=[];let cur="";
@@ -696,7 +697,11 @@ async function speakOnline(txt,rate,tok){
 }
 /* 整段文字正好是课程里的某个单词时，直接读它的假名：系统语音遇到多音字（生、日、方、人…）常读错 */
 let KANAMAP=null,KANAN=-1;
+/* 单个假名（イ、キャ）：安卓语音引擎读片假名单字常常没声音或一闪而过，改成平假名读 */
+const lone=t=>/^[ぁ-ゖァ-ヺー]{1,2}$/.test(t);
+const toHira=t=>t.replace(/[ァ-ヶ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60));
 function kanaOf(t){
+  if(lone(t))return toHira(t);
   if(!/[\u3400-\u9FFF]/.test(t)||t.length>12)return t;
   if(!KANAMAP||KANAN!==WORDS.length){KANAMAP=new Map();KANAN=WORDS.length;
     for(const w of WORDS){const k=plain(w.ja),r=reading(w.kana||"");if(k&&r&&!/[\u3400-\u9FFF]/.test(r)&&!KANAMAP.has(k))KANAMAP.set(k,r)}}
@@ -725,8 +730,10 @@ function speak(t,o){
 function stopSpeak(){
   speakTok++;
   const f=curFin;curFin=null;
-  if(audioEl)try{audioEl.pause()}catch(e){}
-  if(SS)try{if(SS.speaking||SS.pending){SS.cancel();lastCancel=Date.now()}}catch(e){}
+  /* 切题太快时，上一句可能还在排队，speaking / pending 还是 false：不能靠它们判断，一律 cancel；
+   * 在线发音还在加载的也要彻底停掉（去掉 src），否则它加载完会接着出声，和下一句撞在一起 */
+  if(audioEl)try{audioEl.pause();audioEl.onplaying=audioEl.onended=audioEl.onerror=null;audioEl.removeAttribute("src");audioEl.load()}catch(e){}
+  if(SS)try{SS.cancel();lastCancel=Date.now()}catch(e){}
   if(f)f(false);
 }
 /* 设置页「试听」用：读一句，返回 {ok, engine, err} */
@@ -1034,7 +1041,7 @@ function render(){
 }
 function go(tab,opts){
   if(!TABS[tab])tab="home";
-  const t=TABS[tab],from=ui.tab;ui.tab=tab;try{W.localStorage.setItem(KEY+":tab",tab)}catch(e){}
+  const t=TABS[tab],from=ui.tab;if(from!==tab)stopSpeak();ui.tab=tab;try{W.localStorage.setItem(KEY+":tab",tab)}catch(e){}
   if(t.onShow)try{t.onShow(Object.assign({from},opts||{}))}catch(e){console.error(e)}
   render();if(!(opts&&opts.keepScroll))try{W.scrollTo(0,0)}catch(e){}
 }
