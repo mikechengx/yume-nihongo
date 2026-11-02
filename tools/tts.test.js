@@ -84,5 +84,9 @@ function env(opts){
   /* 11. 长句：自带语音按句子分段读 */
   {const {Y,log}=env({voices:[{name:"Kyoko",lang:"ja-JP",localService:true}],sysDur:300});
     await Y.speak("今日はとてもいい天気です。".repeat(8));ok(log.filter(x=>x[0]==="say").length>=2,"长句分段读");}
+  /* 12. 单个片假名：自带语音改读平假名；在线先用百度 */
+  {const {Y,log}=env({voices:[{name:"Kyoko",lang:"ja-JP",localService:true}],sysDur:300});
+    await Y.speak("イ");ok(log[0][0]==="say"&&log[0][1]==="い","单个片假名改读平假名："+log[0][1]);}
+  {const {Y,log}=env({noSS:true});await Y.speak("イ");ok(log[0][1].includes("baidu"),"单个假名在线先用百度");}
   console.log("tts: "+pass+" 项全部通过");
 })().catch(e=>{console.error(e);process.exit(1)});
